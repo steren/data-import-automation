@@ -1,86 +1,80 @@
 // This is intended to be run as a Google Apps Script
 
 // --- CONFIGURATION ---
-const CONFIG = {
-    SOURCE_FOLDER_ID: '1bjhynAfhDGYwvKVE3HOcwGP3kw___F5N',
-    PROCESSED_FOLDER_ID: '1u79xcVmMHKCK8KPfNsWqNNQ4M7Fr-rXu',
-
-    // The specific header in the CSV/Sheet that contains the Date
-    DATE_COLUMN_HEADER: 'Date',
-
-    // Sheet Name
-    SHEET_NAME: 'SFCU Checking',
-
-    // Number of metadata rows to skip at the top of the CSV
-    METADATA_ROWS_TO_SKIP: 1
-};
+const CONFIGS = [
+    {
+        SHEET_NAME: 'SFCU Checking',
+        SOURCE_FOLDER_ID: '1bjhynAfhDGYwvKVE3HOcwGP3kw___F5N',
+        PROCESSED_FOLDER_ID: '1u79xcVmMHKCK8KPfNsWqNNQ4M7Fr-rXu',
+        DATE_COLUMN_HEADER: 'Date',
+        METADATA_ROWS_TO_SKIP: 1
+    }
+];
 
 function processNewCsvFiles() {
-    const sourceFolder = DriveApp.getFolderById(CONFIG.SOURCE_FOLDER_ID);
-    const processedFolder = DriveApp.getFolderById(CONFIG.PROCESSED_FOLDER_ID);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const timeZone = ss.getSpreadsheetTimeZone();
 
-    const files = sourceFolder.getFiles();
+    CONFIGS.forEach(config => {
+        Logger.log(`--- Processing: ${config.SHEET_NAME} ---`);
+        const sourceFolder = DriveApp.getFolderById(config.SOURCE_FOLDER_ID);
+        const processedFolder = DriveApp.getFolderById(config.PROCESSED_FOLDER_ID);
 
-    while (files.hasNext()) {
-        const file = files.next();
-        const fileName = file.getName();
+        const files = sourceFolder.getFiles();
 
-        if (file.getMimeType() === MimeType.CSV || fileName.endsWith('.csv')) {
-            try {
-                Logger.log(`Processing file: ${fileName}`);
-                let csvData = Utilities.parseCsv(file.getBlob().getDataAsString());
+        while (files.hasNext()) {
+            const file = files.next();
+            const fileName = file.getName();
 
-                // 1. Remove metadata rows
-                if (csvData.length > CONFIG.METADATA_ROWS_TO_SKIP) {
-                    csvData.splice(0, CONFIG.METADATA_ROWS_TO_SKIP);
-                } else {
-                    Logger.log("File too short, skipping.");
-                    continue;
-                }
+            if (file.getMimeType() === MimeType.CSV || fileName.endsWith('.csv')) {
+                try {
+                    Logger.log(`Processing file: ${fileName}`);
+                    let csvData = Utilities.parseCsv(file.getBlob().getDataAsString());
 
-                // 2. Determine Target Sheet
-                const targetSheetName = CONFIG.SHEET_NAME;
+                    // 1. Remove metadata rows
+                    if (csvData.length > config.METADATA_ROWS_TO_SKIP) {
+                        csvData.splice(0, config.METADATA_ROWS_TO_SKIP);
+                    } else {
+                        Logger.log("File too short, skipping.");
+                        continue;
+                    }
 
-                Logger.log(`Processing ${fileName} for Target Sheet: ${targetSheetName}`);
-                const sheet = ss.getSheetByName(targetSheetName);
+                    // 2. Determine Target Sheet
+                    const targetSheetName = config.SHEET_NAME;
 
-                if (!sheet) {
-                    Logger.log(`Error: Sheet "${targetSheetName}" does not exist.`);
-                    continue;
-                }
+                    Logger.log(`Processing ${fileName} for Target Sheet: ${targetSheetName}`);
+                    const sheet = ss.getSheetByName(targetSheetName);
 
-                // --- 3. Get Last Date FROM THE TARGET SHEET ---
-                const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-                const dateColIndex = headers.indexOf(CONFIG.DATE_COLUMN_HEADER);
+                    if (!sheet) {
+                        Logger.log(`Error: Sheet "${targetSheetName}" does not exist.`);
+                        continue;
+                    }
 
-                if (dateColIndex === -1) {
-                    Logger.log(`Error: Could not find column "${CONFIG.DATE_COLUMN_HEADER}" in sheet ${targetSheetName}`);
-                    continue;
-                }
+                    // --- 3. Get Last Date FROM THE TARGET SHEET ---
+                    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+                    const dateColIndex = headers.indexOf(config.DATE_COLUMN_HEADER);
 
-                const lastRow = sheet.getLastRow();
-                let lastSheetDateValue = 0;
+                    if (dateColIndex === -1) {
+                        Logger.log(`Error: Could not find column "${config.DATE_COLUMN_HEADER}" in sheet ${targetSheetName}`);
+                        continue;
+                    }
 
-                if (lastRow > 1) {
-                    const cellValue = sheet.getRange(lastRow, dateColIndex + 1).getValue();
-                    lastSheetDateValue = getDateInteger(cellValue, timeZone);
-                }
+                    const lastRow = sheet.getLastRow();
+                    let lastSheetDateValue = 0;
 
-                // --- 4. Filter Rows ---
-                const newRows = csvData.filter(row => {
-                    const rowDateString = row[dateColIndex];
-                    const rowDateValue = getDateInteger(rowDateString, timeZone);
-                    return rowDateValue > lastSheetDateValue;
-                });
+                    if (lastRow > 1) {
+                        const cellValue = sheet.getRange(lastRow, dateColIndex + 1).getValue();
+                        lastSheetDateValue = getDateInteger(cellValue, timeZone);
+                    }
 
-                // --- 5. Write to Sheet ---
-                if (newRows.length > 0) {
-                    // If appending to existing data, we rely on the date filter to exclude the header row
-                    // (Header "DATE" parses to 0, which is not > lastSheetDateValue)
+                    // --- 4. Filter Rows ---
+                    const newRows = csvData.filter(row => {
+                        const rowDateString = row[dateColIndex];
+                        const rowDateValue = getDateInteger(rowDateString, timeZone);
+                        return rowDateValue > lastSheetDateValue;
+                    });
 
-
+                    // --- 5. Write to Sheet ---
                     if (newRows.length > 0) {
                         sheet.getRange(
                             sheet.getLastRow() + 1,
@@ -89,18 +83,18 @@ function processNewCsvFiles() {
                             newRows[0].length
                         ).setValues(newRows);
                         Logger.log(`Imported ${newRows.length} rows to ${targetSheetName}.`);
+                    } else {
+                        Logger.log(`No new rows found in ${fileName}.`);
                     }
-                } else {
-                    Logger.log(`No new rows found in ${fileName}.`);
+
+                    file.moveTo(processedFolder);
+
+                } catch (e) {
+                    Logger.log(`Error processing ${fileName}: ${e.toString()}`);
                 }
-
-                file.moveTo(processedFolder);
-
-            } catch (e) {
-                Logger.log(`Error processing ${fileName}: ${e.toString()}`);
             }
         }
-    }
+    });
 }
 
 // --- Helper Function ---
