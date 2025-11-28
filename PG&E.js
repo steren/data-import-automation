@@ -1,0 +1,131 @@
+// This is intended to be run as a Google Apps Script
+
+// --- CONFIGURATION ---
+const CONFIG = {
+  SOURCE_FOLDER_ID: '1Un1YtCm9o_ffdBf4KC-_moipR1csCWyS',
+  PROCESSED_FOLDER_ID: '1zLgt5CfIeuc38WtPhLO73K55FkjqbIs9',
+
+  // The specific header in the CSV/Sheet that contains the Date
+  DATE_COLUMN_HEADER: 'DATE',
+
+  // Sheet Names (Update these if you rename your tabs)
+  SHEET_NAME_ELECTRIC: 'Electric Hilo',
+  SHEET_NAME_GAS: 'Gas Hilo'
+};
+
+function processNewCsvFiles() {
+  const sourceFolder = DriveApp.getFolderById(CONFIG.SOURCE_FOLDER_ID);
+  const processedFolder = DriveApp.getFolderById(CONFIG.PROCESSED_FOLDER_ID);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const timeZone = ss.getSpreadsheetTimeZone();
+
+  const files = sourceFolder.getFiles();
+
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileName = file.getName();
+
+    if (file.getMimeType() === MimeType.CSV || fileName.endsWith('.csv')) {
+      try {
+        Logger.log(`Processing file: ${fileName}`);
+        let csvData = Utilities.parseCsv(file.getBlob().getDataAsString());
+
+        // 1. Remove first 5 metadata rows
+        if (csvData.length > 7) {
+          csvData.splice(0, 7);
+        } else {
+          Logger.log("File too short, skipping.");
+          continue;
+        }
+
+        // 2. Determine Target Sheet based on Cell A1
+        const headerCell = csvData[0][0].trim();
+        let targetSheetName = null;
+
+        if (headerCell === "Electric usage") {
+          targetSheetName = CONFIG.SHEET_NAME_ELECTRIC;
+        } else if (headerCell === "Natural gas usage") {
+          targetSheetName = CONFIG.SHEET_NAME_GAS;
+        } else {
+          Logger.log(`Skipped ${fileName}: Header "${headerCell}" unknown.`);
+          continue;
+        }
+
+        Logger.log(`Identified type: ${headerCell}. Target Sheet: ${targetSheetName}`);
+        const sheet = ss.getSheetByName(targetSheetName);
+
+        if (!sheet) {
+          Logger.log(`Error: Sheet "${targetSheetName}" does not exist.`);
+          continue;
+        }
+
+        // --- 3. Get Last Date FROM THE TARGET SHEET ---
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        const dateColIndex = headers.indexOf(CONFIG.DATE_COLUMN_HEADER);
+
+        if (dateColIndex === -1) {
+          Logger.log(`Error: Could not find column "${CONFIG.DATE_COLUMN_HEADER}" in sheet ${targetSheetName}`);
+          continue;
+        }
+
+        const lastRow = sheet.getLastRow();
+        let lastSheetDateValue = 0;
+
+        if (lastRow > 1) {
+          const cellValue = sheet.getRange(lastRow, dateColIndex + 1).getValue();
+          lastSheetDateValue = getDateInteger(cellValue, timeZone);
+        }
+
+        // --- 4. Filter Rows ---
+        const newRows = csvData.filter(row => {
+          const rowDateString = row[dateColIndex];
+          const rowDateValue = getDateInteger(rowDateString, timeZone);
+          return rowDateValue > lastSheetDateValue;
+        });
+
+        // --- 5. Write to Sheet ---
+        if (newRows.length > 0) {
+          // If appending to existing data, strip the header row from the new data
+          if (lastRow > 0 && newRows[0][0] === headerCell) {
+            newRows.shift();
+          }
+
+          if (newRows.length > 0) {
+            sheet.getRange(
+              sheet.getLastRow() + 1,
+              1,
+              newRows.length,
+              newRows[0].length
+            ).setValues(newRows);
+            Logger.log(`Imported ${newRows.length} rows to ${targetSheetName}.`);
+          }
+        } else {
+          Logger.log(`No new rows found in ${fileName}.`);
+        }
+
+        file.moveTo(processedFolder);
+
+      } catch (e) {
+        Logger.log(`Error processing ${fileName}: ${e.toString()}`);
+      }
+    }
+  }
+}
+
+// --- Helper Function ---
+function getDateInteger(value, timeZone) {
+  if (!value) return 0;
+  if (value instanceof Date) {
+    return parseInt(Utilities.formatDate(value, timeZone, "yyyyMMdd"));
+  }
+  const strVal = String(value).trim();
+  // Optimization for YYYY-MM-DD to avoid timezone shifting
+  if (strVal.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return parseInt(strVal.replace(/-/g, ''));
+  }
+  const parsedDate = new Date(strVal);
+  if (!isNaN(parsedDate.getTime())) {
+    return parseInt(Utilities.formatDate(parsedDate, timeZone, "yyyyMMdd"));
+  }
+  return 0;
+}
