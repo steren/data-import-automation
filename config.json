@@ -1,0 +1,10 @@
+[
+    {
+        "SHEET_NAME": "SFCU Checking",
+        "SOURCE_FOLDER_ID": "1bjhynAfhDGYwvKVE3HOcwGP3kw___F5N",
+        "PROCESSED_FOLDER_ID": "1u79xcVmMHKCK8KPfNsWqNNQ4M7Fr-rXu",
+        "DATE_COLUMN_HEADER": "Date",
+        "METADATA_ROWS_TO_SKIP": 1,
+        "SPREADSHEET_ID": "YOUR_SPREADSHEET_ID_HERE"
+    }
+]

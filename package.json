@@ -1,0 +1,14 @@
+{
+    "name": "data-import-automation",
+    "version": "1.0.0",
+    "description": "Automation scripts for data import",
+    "type": "module",
+    "main": "import-data.js",
+    "scripts": {
+        "start": "node import-data.js"
+    },
+    "dependencies": {
+        "googleapis": "^128.0.0",
+        "csv-parse": "^5.5.0"
+    }
+}
